@@ -1,0 +1,53 @@
+name: 'Pinaka Agent Surface Scan'
+description: >-
+  Map your AI-agent / MCP attack surface on every push. Scans inside YOUR CI —
+  source code never leaves the runner, only a secrets-redacted graph is uploaded,
+  and Pinaka never holds a GitHub token.
+author: 'Pinaka'
+branding:
+  icon: 'shield'
+  color: 'purple'
+
+inputs:
+  api-key:
+    description: 'Pinaka API key (pk_live_...). Pass it from a repo secret named PINAKA_API_KEY.'
+    required: true
+  project:
+    description: 'Project identifier shown in Pinaka. Defaults to the repository (owner/repo) via GITHUB_REPOSITORY.'
+    required: false
+    default: ''
+  path:
+    description: 'Path within the repo to scan.'
+    required: false
+    default: '.'
+  api-url:
+    description: 'Pinaka API base URL.'
+    required: false
+    default: 'https://api.pinaka.sh'
+  fail-on:
+    description: 'Fail the job if a finding of this severity or higher exists (none|low|medium|high|critical).'
+    required: false
+    default: 'none'
+  comment-on-pr:
+    description: 'Post a summary comment on the PR using the workflow GITHUB_TOKEN (needs pull-requests: write).'
+    required: false
+    default: 'true'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.x'
+    - name: Run Pinaka agent-surface scan
+      shell: bash
+      run: python "$GITHUB_ACTION_PATH/scan.py"
+      env:
+        PINAKA_API_KEY: ${{ inputs.api-key }}
+        PINAKA_PROJECT: ${{ inputs.project }}
+        PINAKA_SCAN_PATH: ${{ inputs.path }}
+        PINAKA_API_URL: ${{ inputs.api-url }}
+        PINAKA_FAIL_ON: ${{ inputs.fail-on }}
+        PINAKA_COMMENT_ON_PR: ${{ inputs.comment-on-pr }}
+        GITHUB_TOKEN: ${{ github.token }}
