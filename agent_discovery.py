@@ -69,9 +69,15 @@ _API_CATEGORIES = {"recon_read", "recon_write", "recon_trigger", "scan",
 # Tool-poisoning / hidden-instruction markers in a description (OWASP MCP03).
 # Only explicit injection markers — bare file-path mentions (.env, ~/.ssh) were
 # removed: tools legitimately document those paths, so they false-positive.
+# The `system:` role-label marker is anchored to a LINE START (`(?:^|\n)`): a fake
+# system prompt lives at the start of a line, whereas the bare token "system:"
+# matches benign mid-word/mid-line text — a tool param `include_system:`, a path
+# `FileSystem:`, or prose "operating system:" — which is a real false positive
+# (caught on public MCP-server tool descriptions). The other markers are explicit
+# enough to stay unanchored.
 _POISON_RE = re.compile(
     r"<\s*important\s*>|<!--|<\s*s\s*>|ignore\s+(previous|prior|above|all)|"
-    r"do not\s+(tell|inform|mention|reveal|disclose)|disregard\b|system\s*:",
+    r"do not\s+(tell|inform|mention|reveal|disclose)|disregard\b|(?:^|\n)\s*system\s*:",
     re.IGNORECASE,
 )
 # AS-GI-003: invisible / control characters in a tool description have no
