@@ -86,6 +86,19 @@ def _maybe_comment_on_pr(summary: str) -> None:
         print(f"::warning::Could not post PR comment: {e}")
 
 
+def _should_upload(explicit: str, event: str) -> bool:
+    """Whether to write a snapshot to the Pinaka dashboard.
+
+    Posture and drift track the CANONICAL surface — what is merged on the default
+    branch — so a `pull_request` run stays advisory (scan + comment + gate) and does
+    NOT upload, or experimental PR states would pollute the posture history. Every
+    other event (push, workflow_dispatch, schedule, or a local run with no event)
+    is canonical and uploads. An explicit `PINAKA_UPLOAD` (true/false) overrides."""
+    if explicit:
+        return explicit.lower() in ("1", "true", "yes", "on")
+    return event.lower() not in ("pull_request", "pull_request_target")
+
+
 def _fail_gate(findings: list, fail_on: str) -> int:
     threshold = _SEV_RANK.get(fail_on.lower(), 0)
     if threshold == 0:
@@ -112,25 +125,35 @@ def main() -> int:
     project = _env("PINAKA_PROJECT") or repo or Path(scan_path).resolve().name
     fail_on = _env("PINAKA_FAIL_ON", "none")
     comment = _env("PINAKA_COMMENT_ON_PR", "true").lower() in ("1", "true", "yes", "on")
+    should_upload = _should_upload(_env("PINAKA_UPLOAD"), _env("GITHUB_EVENT_NAME"))
 
     # 1. Discover (local, AST) + human summary.
     result = ad.discover(scan_path)
     summary = ad.format_summary(result)
     print(summary)
 
-    # 2. Redact (strip secrets) and upload only the graph.
-    redacted = ad.redact(result)
-    try:
-        resp = _upload(api_url, api_key, project, redacted, repo)
-        print(f"\n✅ Uploaded to Pinaka as project '{project}' "
-              f"(discovery {resp.get('discovery_id', '?')}).")
-    except urllib.error.HTTPError as e:
-        detail = e.read().decode()[:300] if hasattr(e, "read") else ""
-        print(f"::error::Upload failed: HTTP {e.code} {detail}")
-        return 1
-    except Exception as e:  # noqa: BLE001
-        print(f"::error::Upload failed: {e}")
-        return 1
+    # 2. Redact (strip secrets) and upload only the graph — but ONLY for the
+    # canonical surface. Posture/drift track the default branch (what is actually
+    # merged), so a pull_request run is advisory: it scans, comments, and gates,
+    # but never writes a snapshot, keeping experimental PR states out of the
+    # posture history. See _should_upload; PINAKA_UPLOAD overrides.
+    if should_upload:
+        redacted = ad.redact(result)
+        try:
+            resp = _upload(api_url, api_key, project, redacted, repo)
+            print(f"\n✅ Uploaded to Pinaka as project '{project}' "
+                  f"(discovery {resp.get('discovery_id', '?')}).")
+        except urllib.error.HTTPError as e:
+            detail = e.read().decode()[:300] if hasattr(e, "read") else ""
+            print(f"::error::Upload failed: HTTP {e.code} {detail}")
+            return 1
+        except Exception as e:  # noqa: BLE001
+            print(f"::error::Upload failed: {e}")
+            return 1
+    else:
+        print("\nℹ️  Advisory run (pull_request): findings are commented on the PR "
+              "and gated, but not uploaded to the Pinaka dashboard. Posture tracks "
+              "the default branch.")
 
     # 3. Optional PR comment (uses GITHUB_TOKEN, not Pinaka).
     if comment:
